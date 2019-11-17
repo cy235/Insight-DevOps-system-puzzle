@@ -1,2 +1,20 @@
-# Insight-DevOps-system-puzzle
-Insight-DevOps-system-puzzle
+# System puzzle debug for Insight DevOps program
+
+## Error 1: localhost refused to connect.
+When I installed the Docker, and executed three commands,
+```
+docker-compose up -d db
+docker-compose run --rm flaskapp /bin/bash -c "cd /opt/services/flaskapp/src && python -c  'import database; database.init_db()'"
+docker-compose up -d
+```
+the webpage can not be successfully loaded as shown in the templates. After searching some basic knowledge about the Docker, Nginx, flask and PostgreSQL and how they cooperate with each other, I got to know that the webpage loading failure may be caused by unsuccessful communication between applications. So I learned about concepts of port, host, and guest, and understood that the webpage can only be successfully loaded when ports between applications match or are correctly mapped. I noticed the localhost port was set as `8080` and found the default port values for each application are, `Nginx:80`, `flask:5000` and `postgreSQL:5432`, respectively. 
+<img src=NGINX-in-Production-Environment3.png> Also, I checked all the files carefully, and investigated three files that contain the port information, i.e., `flaskapp.conf`, `Dockerfile`, `docker-compose.yml`,  and I found that the port mapping from the Nginx to the host was `8080:80`, which seemed to be an incorrect order, because `8080` was actually the host port but `80` is the default port of Nginx, so I modified port setting of Nginx in file `docker-compose.yml` and shifted the order of port mapping from the Nginx to the host as `80:8080`. I stopped, removed and rebuilt the Docker containers, and the webpage became `502 bad gateway`.
+
+## Error 2: 502 bad gateway.
+I continued to search for some information about how to set the ports for Nginx, flask, and PostgreSQL, and found in https://pybit.es/flask-ports.html that port in `app.run` should be specified, otherwise the port setting will be a default value `5000`. I went back to the files again and found `app.run` in the last row of file `app.py`, and I noticed that the port setting in `app.run` was not specified, so I added `port=5001` in `app.run` because the port values in `Dockerfile` was `EXPOSE 5001` and in `flaskapp.conf` was `proxy_pass http://flaskapp:5001;`. Then I removed and rebuilt the Docker containers, I can visit the webpage http://localhost:8080/ successfully as shown in the templates. Also, I tried another way to fix this problem by changing the port value from `5001` to `5000` in both `Dockerfile` and `flaskapp.conf` and kept the `app.run` in `app.py` unchanged, the webpage can also be successfully loaded.
+
+## Error 3: localhost%2Clocalhost’s server IP address could not be found.
+However, after I filled the forms on the webpage http://localhost:8080/ and click the `Enter Item`, the webpage is navigated to http://localhost%2Clocalhost:8080/success but it showed `localhost%2Clocalhost’s server IP address could not be found`. I went back to investigate all the files that contain host information, i.e., `flaskapp.conf`, `app.y`, and `database.py`. First, I changed the `host =db` in `database.py` into `host = '0.0.0.0'`, but encountered `Internal Server Error`. Then, I checked `flaskapp.conf` carefully, and found that there existed two Host settings for `proxy_set_header`. I checked from https://github.com/voxpupuli/puppet-nginx/issues/476 and https://serverfault.com/questions/808990/proxy-set-header-not-working, and tried either one of them, finally I found the webpage http://localhost:8080/ can be successfully redirected to http://localhost:8080/success when `proxy_set_header Host $host;` was removed.
+
+## Error 4: empty returned results in the redirected webpage.
+Even though the new webpage http://localhost:8080/success was loaded successfully, the content on this webpage was `[]`. I went back to http://localhost:8080/ and entered a new item, it showed `[,]`, I did it again and it became `[,,]`, .... So I checked the `app.y` file, and guessed that the queried results were returned directly as objects, which can not be displayed properly in string form. So I added a for loop to list the information of each item in results, and it worked finally!
